@@ -1,0 +1,72 @@
+name: ML CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Continuous Integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run ML program
+        run: |
+          python model.py | tee model-output.txt
+          grep "Model accuracy:" model-output.txt | sed 's/.*Model accuracy: //' > accuracy.txt
+      - name: Run automated tests
+        run: pytest -v
+      - name: Upload model accuracy
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-accuracy
+          path: accuracy.txt
+
+  deploy:
+    name: Continuous Deployment to GitHub Pages
+    needs: ci
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Download model accuracy
+        uses: actions/download-artifact@v4
+        with:
+          name: model-accuracy
+      - name: Insert measured model accuracy into webpage
+        run: |
+          accuracy="$(cat accuracy.txt)"
+          sed -i "s/MODEL_ACCURACY_PLACEHOLDER/${accuracy}/" index.html
+      - name: Upload website artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
